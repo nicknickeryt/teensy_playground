@@ -1,0 +1,7 @@
+Current pinout (I hope)
+
+21 -> CAMERA_AO   | ADC1
+0  -> CAMERA_CLK  | GPIO6_3
+1  -> CAMERA_SI   | GPIO6_2
+
+13 -> AMBER_LED
