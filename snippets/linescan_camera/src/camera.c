@@ -7,9 +7,10 @@
 #include "adc.h"
 #include "gpio.h"
 
-void setupCamera() {
-    // Here we initialize CLK, SI GPIOs and ADC1.
+uint32_t bufArr[ADC_SAMPLES];
+K_MSGQ_DEFINE(camera_dat_msgq, CAMERA_MSG_LEN, CAMERA_MSG_ARRAY_SIZE, 4);
 
+void setupCamera() {
     setupGPIO();
     configurePin(CAMERA_SI_GPIO_PORT, CAMERA_SI_GPIO_PIN, GPIO_OUTPUT_ACTIVE);
     configurePin(CAMERA_CLK_GPIO_PORT, CAMERA_CLK_GPIO_PIN, GPIO_OUTPUT_ACTIVE);
@@ -18,112 +19,99 @@ void setupCamera() {
     setPin(CAMERA_CLK_GPIO_PORT, CAMERA_CLK_GPIO_PIN);
 }
 
-// Note: the minimum time for full clock period is 1/8MHz = 125ns
-//       So a pulse should be no shorter than 63ns
-
 void setSIPin() { setPin(CAMERA_SI_GPIO_PORT, CAMERA_SI_GPIO_PIN); }
-void resetSIPin() { setPin(CAMERA_SI_GPIO_PORT, CAMERA_SI_GPIO_PIN); }
+void resetSIPin() { resetPin(CAMERA_SI_GPIO_PORT, CAMERA_SI_GPIO_PIN); }
 
 void setCLKPin() { setPin(CAMERA_CLK_GPIO_PORT, CAMERA_CLK_GPIO_PIN); }
 
 void resetCLKPin() { resetPin(CAMERA_CLK_GPIO_PORT, CAMERA_CLK_GPIO_PIN); }
 
 void dummyCameraProc() {
-    // printk("Dummy camera proc\n");
+    uint32_t buf = 0;
 
-    // // First we RESET SLK pin
-    // resetCLKPin();
-    // // Then we SET SI pin ASAP
-    // setSIPin();
+    struct adc_sequence_options adc_options = {.interval_us = 0};
 
-    // // Wait minimum pulse time
-    // K_NSEC(63);
-
-    // // Then we can SET CLK pin
-    // setCLKPin();
-
-    // // Now we start first ADC read
-    // int read = readADC();
-
-    // // After we read ADC, we reset release SI pin (I guess?)
-    // resetSIPin();
-
-    // // Wait minimum pulse time
-    // K_NSEC(63);
-
-    // // Then we can RESET CLK pin
-    // resetCLKPin();
-
-    // // Wait minimum pulse time
-    // K_NSEC(63);
-
-    // // And the cycle continues...
-
-    // Just for testing....
-
-    #define ADC_SAMPLES 128
-
-    int64_t buf = 0;
-    int64_t bufArr[ADC_SAMPLES];
     struct adc_sequence sequence = {
         .buffer = &buf,
         /* buffer size in bytes, not number of samples */
         .buffer_size = sizeof(buf),
         // Optional
         //.calibrate = true,
-        .oversampling = 5};
+        .oversampling = 0,
+        .options = &adc_options
 
-    int err = adc_sequence_init_dt(&adc_channels[0], &sequence);
+    };
+
+    int err =
+        adc_sequence_init_dt(&adc_channels[CAMERA_ADC_CHANNEL], &sequence);
     if (err < 0) {
         printk("Could not initalize sequnce");
         return;
     }
 
     while (1) {
-
         bool initialSI = 1;
         resetCLKPin();
         setSIPin();
 
-        printk("[ADC] Read ADC1...\n");
-
         for (unsigned int i = 0; i < ADC_SAMPLES; i++) {
+            k_usleep(DELAY_US);
+
             setCLKPin();
-            if(initialSI) {
+            if (initialSI) {
                 initialSI = 0;
+                k_usleep(DELAY_US);  // this is necessary!
                 resetSIPin();
             }
 
-            err = adc_read(adc_channels[0].dev, &sequence);
+            err = adc_read(adc_channels[CAMERA_ADC_CHANNEL].dev, &sequence);
             if (err < 0) {
                 printk("Could not read (%d)\n", err);
                 return;
             }
+            k_usleep(DELAY_US);
             resetCLKPin();
 
             bufArr[i] = buf;
         }
 
-        printk("ADC readings:\n");
+        // Extra 128th clock
+        k_usleep(DELAY_US);
+        setCLKPin();
+        k_usleep(DELAY_US);
+        resetCLKPin();
+
+        k_msgq_put(&camera_dat_msgq, &bufArr, K_NO_WAIT);
+    }
+}
+
+void periodCameraLog() {
+    while (1) {
+        printk("[CAMERA-LOG] ADC readings:\n");
+        uint32_t cameraBufferArr[ADC_SAMPLES];
+        char logBuffer[ADC_SAMPLES * 12];  // 12 znaków na liczbę (przybliżenie)
+
+        k_msgq_get(&camera_dat_msgq, &cameraBufferArr, K_NO_WAIT);
+
+        size_t offset = 0;
         for (unsigned int i = 0; i < ADC_SAMPLES; i++) {
             int32_t val_mv;
 
-            if (adc_channels[0].channel_cfg.differential)
-                val_mv = (int32_t)((int32_t)bufArr[i]);
-            else
-                val_mv = (int32_t)bufArr[i];
+            val_mv = adc_channels[CAMERA_ADC_CHANNEL].channel_cfg.differential
+                         ? (int32_t)((int32_t)cameraBufferArr[i])
+                         : (int32_t)cameraBufferArr[i];
 
-            printk("%" PRId32, val_mv);
-            err = adc_raw_to_millivolts_dt(&adc_channels[0], &val_mv);
-            if (err < 0)
-                printk(" (value in mV not available)\n");
-
-            else
-                printk(" = %" PRId32 " mV\n", val_mv);
+            int32_t err = adc_raw_to_millivolts_dt(
+                &adc_channels[CAMERA_ADC_CHANNEL], &val_mv);
+            offset +=
+                err < 0
+                    ? snprintf(logBuffer + offset, sizeof(logBuffer) - offset,
+                               "(value in mV not available)\n")
+                    : snprintf(logBuffer + offset, sizeof(logBuffer) - offset,
+                               "%" PRId32 "\n", val_mv);
         }
-        printk("\n");
 
-    k_usleep(1);
-
+        printk("%s\n", logBuffer);
+        k_msleep(1000);
     }
 }
