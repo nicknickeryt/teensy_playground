@@ -7,11 +7,11 @@
 		io-channels = <&adc1 0>;
 	};
 
-    leds: leds {
-		compatible = "pwm-ledc";
+    servo: servo {
+		compatible = "pwm-servo";
 		pwms = <&flexpwm1_pwm3 1 PWM_MSEC(20) PWM_POLARITY_NORMAL>;
 		min-pulse = <PWM_USEC(700)>;
-		max-pulse = <PWM_USEC(2500)>;
+		max-pulse = <PWM_USEC(2300)>;
 	};
 
 	adcpwm: adcpwm {
@@ -30,6 +30,7 @@
 };
 
 &pinctrl {
+	// Servo PWM
 	pinmux_flexpwm_ch1: pinmux_flexpwm_ch1 {
 		group0 {
 			pinmux = <&iomuxc_gpio_b1_01_flexpwm1_pwmb3>;

@@ -4,4 +4,9 @@ Current pinout (I hope)
 0  -> CAMERA_CLK  | GPIO6_3
 1  -> CAMERA_SI   | GPIO6_2
 
+7  -> SERVO_PWM
+
 13 -> AMBER_LED
+
+
+// WLACZYC FPU

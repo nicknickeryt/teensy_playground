@@ -16,5 +16,6 @@ target_sources(app PRIVATE
                 src/camera.c
                 src/led.c
                 src/gpio.c
+                src/servo.c
                 )
 

@@ -7,6 +7,7 @@
 #include "gpio.h"
 #include "led.h"
 #include "usb.h"
+#include "servo.h"
 
 #define STACKSIZE 4096
 #define CAMERA_PROC_PRIORITY 7
@@ -19,6 +20,7 @@ int main() {
     setupUSB();
     setupAdc();
     setupCamera();
+    setupServo();
 
     printk("NXP says hello <3\n");
     uint32_t freq = CLOCK_GetCpuClkFreq();
@@ -34,9 +36,5 @@ K_THREAD_DEFINE(periodCameraLog_id, STACKSIZE, periodCameraLog, NULL, NULL,
 K_THREAD_DEFINE(blinkAmber_id, STACKSIZE, blinkAmber, NULL, NULL, NULL,
                 BLINK_AMBER_PRIORIY, 0, 0);
 
-// K_THREAD_DEFINE(pwmSmoothFade_id, STACKSIZE, pwmSmoothFade, NULL, NULL, NULL,
-//                 PRIORITY, 0, 0);
-
-// K_THREAD_DEFINE(adcProc_id, STACKSIZE, adcProc, NULL, NULL, NULL, PRIORITY,
-// 0,
-//                 0);
+K_THREAD_DEFINE(dummyServoProc_id, STACKSIZE, dummyServoProc, NULL, NULL, NULL,
+                BLINK_AMBER_PRIORIY, 0, 0);
