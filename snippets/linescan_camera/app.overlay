@@ -14,11 +14,11 @@
 		max-pulse = <PWM_USEC(2300)>;
 	};
 
-	adcpwm: adcpwm {
+	sipwm: sipwm {
 		compatible = "pwm-ledc";
-		pwms = <&flexpwm2_pwm2 1 PWM_MSEC(20) PWM_POLARITY_NORMAL>;
-		min-pulse = <PWM_USEC(700)>;
-		max-pulse = <PWM_USEC(2500)>;
+		pwms = <&flexpwm2_pwm2 1 PWM_MSEC(5) PWM_POLARITY_NORMAL>;
+		min-pulse = <PWM_USEC(1)>;
+		max-pulse = <PWM_USEC(16)>;
 	};
 
 };
@@ -40,6 +40,7 @@
 		};
 	};
 
+	// SI PWM
 	pinmux_flexpwm_ch2: pinmux_flexpwm_ch2 {
 		group0 {
 			pinmux = <&iomuxc_gpio_b0_11_flexpwm2_pwmb2>;

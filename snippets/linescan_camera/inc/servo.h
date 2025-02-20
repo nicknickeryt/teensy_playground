@@ -11,9 +11,7 @@
 #define SERVO_PWM_RANGE (SERVO_PWM_MAX_NSEC - SERVO_PWM_MIN_NSEC)
 
 void setupServo();
-void setServo(float degrees);
-void dummyServoProc();
-
+void servoSetDegrees(float degrees);
 void servoPulseSet(int32_t pulseWidth);
 
 #endif /* __SERVO_H */

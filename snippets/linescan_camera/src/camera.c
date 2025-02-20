@@ -2,116 +2,128 @@
 
 #include <zephyr/device.h>
 #include <zephyr/drivers/gpio.h>
+#include <zephyr/drivers/pwm.h>
 #include <zephyr/kernel.h>
 
 #include "adc.h"
+#include "algorithm.h"
+#include "camera.h"
 #include "gpio.h"
+#include "pwm.h"
+#include "servo.h"
 
-uint32_t bufArr[ADC_SAMPLES];
+bool cameraInterruptState = 0;
+
+uint32_t cameraDelayStartUs = 0;
+
+uint32_t buf = 0;
+uint32_t cameraBufArr[CAMERA_ADC_SAMPLES];
+struct adc_sequence camera_adc_sequence = {.buffer = &buf,
+                                           .buffer_size = sizeof(buf)};
+
 K_MSGQ_DEFINE(camera_dat_msgq, CAMERA_MSG_LEN, CAMERA_MSG_ARRAY_SIZE, 4);
+
+void initAdcCameraSequence() {
+    adcInitSequence(CAMERA_ADC_CHANNEL, &camera_adc_sequence);
+}
+
+void cameraPutBufferMsgq() {
+    k_msgq_put(&camera_dat_msgq, &cameraBufArr, K_NO_WAIT);
+}
+
+void cameraDelayUs(int32_t us) {
+    uint32_t start = k_cycle_get_32();
+    while (k_cyc_to_us_floor32(k_cycle_get_32() - start) < us);
+}
+
+void cameraDelayUsStart(int32_t us) {
+    while (k_cyc_to_us_floor32(k_cycle_get_32() - cameraDelayStartUs) < us);
+}
+
+// TODO move main logic to another thread etc
+void cameraProc() {
+    while (1) {
+        while (cameraInterruptState) {
+            cameraDelayStartUs = k_cycle_get_32();
+
+            for (unsigned int i = 0; i < CAMERA_ADC_SAMPLES; i++) {
+                cameraSetCLKPin();
+
+                adcRead(CAMERA_ADC_DEVICE, &camera_adc_sequence);
+
+                cameraDelayUsStart(i * DELAY_US + DELAY_US_HALF);
+                cameraResetCLKPin();
+
+                cameraBufArr[i] = buf;
+                cameraDelayUsStart((i + 1) * DELAY_US);
+            }
+
+            cameraSetCLKPin();
+            cameraDelayUsStart((128) * DELAY_US + DELAY_US_HALF);
+            cameraResetCLKPin();
+
+            cameraPutBufferMsgq();
+
+            cameraInterruptState = 0;
+            int steeringError = algorithmCalculatePosition(cameraBufArr);
+
+            // printk("Steering error: %d\n", steeringError);
+            // cameraDebugPrintk();
+            servoSetDegrees(steeringError);
+        }
+    }
+}
+
+void cameraSetCLKPin() {
+    gpioSetPin(CAMERA_CLK_GPIO_PORT, CAMERA_CLK_GPIO_PIN);
+}
+void cameraResetCLKPin() {
+    gpioResetPin(CAMERA_CLK_GPIO_PORT, CAMERA_CLK_GPIO_PIN);
+}
+
+void gpio_isr(const struct device *dev, struct gpio_callback *cb,
+              uint32_t pins) {
+    cameraInterruptState = 1;
+}
 
 void setupCamera() {
     setupGPIO();
-    configurePin(CAMERA_SI_GPIO_PORT, CAMERA_SI_GPIO_PIN, GPIO_OUTPUT_ACTIVE);
-    configurePin(CAMERA_CLK_GPIO_PORT, CAMERA_CLK_GPIO_PIN, GPIO_OUTPUT_ACTIVE);
 
-    setPin(CAMERA_SI_GPIO_PORT, CAMERA_SI_GPIO_PIN);
-    setPin(CAMERA_CLK_GPIO_PORT, CAMERA_CLK_GPIO_PIN);
+    gpioConfigurePin(CAMERA_CLK_GPIO_PORT, CAMERA_CLK_GPIO_PIN,
+                     GPIO_OUTPUT_ACTIVE);
+    gpioConfigurePin(GPIO_PORT_2, GPIO_SI_INPUT_PIN,
+                     GPIO_INPUT | GPIO_INT_EDGE_RISING);
+
+    gpioSetPin(CAMERA_CLK_GPIO_PORT, CAMERA_CLK_GPIO_PIN);
+
+    gpioConfigureInterrupt(GPIO_PORT_2, GPIO_SI_INPUT_PIN, GPIO_INT_EDGE_RISING,
+                           gpio_isr);
+
+    pwmInit(PWM_SIPWM);
+    pwmSetPulseNs(PWM_SIPWM, 16000);
+
+    initAdcCameraSequence();
 }
 
-void setSIPin() { setPin(CAMERA_SI_GPIO_PORT, CAMERA_SI_GPIO_PIN); }
-void resetSIPin() { resetPin(CAMERA_SI_GPIO_PORT, CAMERA_SI_GPIO_PIN); }
+void cameraDebugPrintk() {
+    printk("[CAMERA-LOG] ADC readings:\n");
+    uint32_t cameraBufferArr[CAMERA_ADC_SAMPLES];
 
-void setCLKPin() { setPin(CAMERA_CLK_GPIO_PORT, CAMERA_CLK_GPIO_PIN); }
+    k_msgq_get(&camera_dat_msgq, &cameraBufferArr, K_NO_WAIT);
 
-void resetCLKPin() { resetPin(CAMERA_CLK_GPIO_PORT, CAMERA_CLK_GPIO_PIN); }
+    char logBuffer[CAMERA_ADC_SAMPLES * 12];
 
-void dummyCameraProc() {
-    uint32_t buf = 0;
+    size_t offset = 0;
+    for (unsigned int i = 0; i < CAMERA_ADC_SAMPLES; i++)
+        offset += snprintf(logBuffer + offset, sizeof(logBuffer) - offset,
+                           "%" PRId32 "\n", cameraBufferArr[i]);
 
-    struct adc_sequence_options adc_options = {.interval_us = 0};
-
-    struct adc_sequence sequence = {
-        .buffer = &buf,
-        /* buffer size in bytes, not number of samples */
-        .buffer_size = sizeof(buf),
-        // Optional
-        //.calibrate = true,
-        .oversampling = 0,
-        .options = &adc_options
-
-    };
-
-    int err =
-        adc_sequence_init_dt(&adc_channels[CAMERA_ADC_CHANNEL], &sequence);
-    if (err < 0) {
-        printk("Could not initalize sequnce");
-        return;
-    }
-
-    while (1) {
-        bool initialSI = 1;
-        resetCLKPin();
-        setSIPin();
-
-        for (unsigned int i = 0; i < ADC_SAMPLES; i++) {
-            k_usleep(DELAY_US);
-
-            setCLKPin();
-            if (initialSI) {
-                initialSI = 0;
-                k_usleep(DELAY_US);  // this is necessary!
-                resetSIPin();
-            }
-
-            err = adc_read(adc_channels[CAMERA_ADC_CHANNEL].dev, &sequence);
-            if (err < 0) {
-                printk("Could not read (%d)\n", err);
-                return;
-            }
-            k_usleep(DELAY_US);
-            resetCLKPin();
-
-            bufArr[i] = buf;
-        }
-
-        // Extra 128th clock
-        k_usleep(DELAY_US);
-        setCLKPin();
-        k_usleep(DELAY_US);
-        resetCLKPin();
-
-        k_msgq_put(&camera_dat_msgq, &bufArr, K_NO_WAIT);
-    }
+    printk("%s\n", logBuffer);
 }
 
-void periodCameraLog() {
+void cameraDebugPrintkLoop() {
     while (1) {
-        printk("[CAMERA-LOG] ADC readings:\n");
-        uint32_t cameraBufferArr[ADC_SAMPLES];
-        char logBuffer[ADC_SAMPLES * 12];  // 12 znaków na liczbę (przybliżenie)
-
-        k_msgq_get(&camera_dat_msgq, &cameraBufferArr, K_NO_WAIT);
-
-        size_t offset = 0;
-        for (unsigned int i = 0; i < ADC_SAMPLES; i++) {
-            int32_t val_mv;
-
-            val_mv = adc_channels[CAMERA_ADC_CHANNEL].channel_cfg.differential
-                         ? (int32_t)((int32_t)cameraBufferArr[i])
-                         : (int32_t)cameraBufferArr[i];
-
-            int32_t err = adc_raw_to_millivolts_dt(
-                &adc_channels[CAMERA_ADC_CHANNEL], &val_mv);
-            offset +=
-                err < 0
-                    ? snprintf(logBuffer + offset, sizeof(logBuffer) - offset,
-                               "(value in mV not available)\n")
-                    : snprintf(logBuffer + offset, sizeof(logBuffer) - offset,
-                               "%" PRId32 "\n", val_mv);
-        }
-
-        printk("%s\n", logBuffer);
-        k_msleep(1000);
+        cameraDebugPrintk();
+        k_msleep(500);
     }
 }

@@ -6,9 +6,9 @@
 #define AMBER_LED_GPIO_PORT GPIO_PORT_2
 #define AMBER_LED_GPIO_PIN 3
 
-void initAmberLed();
+void setupAmberLed();
 
-void setAmberLed();
-void resetAmberLed();
+void ledAmberSet();
+void ledAmberReset();
 
 #endif /* __LED_H */

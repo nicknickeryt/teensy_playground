@@ -5,14 +5,15 @@
 #include "led.h"
 #include "gpio.h"
 
-void initAmberLed() {
+void setupAmberLed() {
     setupGPIO();
-    configurePin(AMBER_LED_GPIO_PORT, AMBER_LED_GPIO_PIN, GPIO_OUTPUT_ACTIVE);
+    gpioConfigurePin(AMBER_LED_GPIO_PORT, AMBER_LED_GPIO_PIN, GPIO_OUTPUT_ACTIVE);
 }
 
-void setAmberLed() {
-    setPin(AMBER_LED_GPIO_PORT, AMBER_LED_GPIO_PIN);
+void ledAmberSet() {
+    gpioSetPin(AMBER_LED_GPIO_PORT, AMBER_LED_GPIO_PIN);
 }
-void resetAmberLed() {
-    resetPin(AMBER_LED_GPIO_PORT, AMBER_LED_GPIO_PIN);
+
+void ledAmberReset() {
+    gpioResetPin(AMBER_LED_GPIO_PORT, AMBER_LED_GPIO_PIN);
 }

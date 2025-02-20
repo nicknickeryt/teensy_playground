@@ -6,6 +6,8 @@ project(nxpcup)
 
 set(ENV{ZEPHYR_BASE} ${ZEPHYR_BASE})
 
+set(CMAKE_GENERATOR "Ninja")
+
 include_directories(inc)
 
 target_sources(app PRIVATE 
@@ -17,5 +19,7 @@ target_sources(app PRIVATE
                 src/led.c
                 src/gpio.c
                 src/servo.c
+                src/algorithm.c
+                src/pwm.c
                 )
 
